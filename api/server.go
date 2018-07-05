@@ -142,15 +142,17 @@ func GMapApiUrls(locations [][2]string, apiKey string) []string {
 	if len(locations) == 2 {
 		urls = []string{fmt.Sprintf("https://maps.googleapis.com/maps/api/directions/json?origin=%s,%s&destination=%s,%s&key=%s", locations[0][0], locations[0][1], locations[1][0], locations[1][1], apiKey)}
 	} else {
-		permEnd := len(locations) - 2
-		for perm := range GeneratePermutations(locations[1:]) {
+		for i, destination := range locations[1:] {
 			// Combine the waypoints to a string for Google Map Directions API, lat1,lng1|lat2,lng2|...
+			// todo: more efficient to join string
 			var wps []string
-			for _, wp := range perm[:permEnd] {
-				wps = append(wps, strings.Join(wp[:], ","))
+			for j, wp := range locations[1:] {
+				if i != j {
+					wps = append(wps, strings.Join(wp[:], ","))
+				}
 			}
 			waypoints := strings.Join(wps, "|")
-			urls = append(urls, fmt.Sprintf("https://maps.googleapis.com/maps/api/directions/json?origin=%s,%s&destination=%s,%s&waypoints=%s&key=%s", locations[0][0], locations[0][1], perm[permEnd][0], perm[permEnd][1], waypoints, apiKey))
+			urls = append(urls, fmt.Sprintf("https://maps.googleapis.com/maps/api/directions/json?origin=%s,%s&destination=%s,%s&waypoints=optimize:true|%s&key=%s", locations[0][0], locations[0][1], destination[0], destination[1], waypoints, apiKey))
 		}
 	}
 
@@ -199,39 +201,41 @@ func CallGMapApi(client *http.Client, urls []string, start [2]string) (types.Suc
 	return success, nil
 }
 
-func GeneratePermutations(data [][2]string) <-chan [][2]string {
-	c := make(chan [][2]string)
-	go func(c chan [][2]string) {
-		defer close(c)
-		permutate(c, data)
-	}(c)
-	return c
-}
+// func GeneratePermutations(length int) <-chan []int {
+// 	c := make(chan []int)
+// 	go func(c chan []int) {
+// 		defer close(c)
+// 		permutate(c, length)
+// 	}(c)
+// 	return c
+// }
 
-func permutate(c chan [][2]string, inputs [][2]string) {
-	output := make([][2]string, len(inputs))
-	copy(output, inputs)
-	c <- output
+// func permutate(c chan []int, length int) {
+// 	p := make([]int, length+1)
+// 	for i := 0; i < length+1; i++ {
+// 		p[i] = i
+// 	}
 
-	size := len(inputs)
-	p := make([]int, size+1)
-	for i := 0; i < size+1; i++ {
-		p[i] = i
-	}
-	for i := 1; i < size; {
-		p[i]--
-		j := 0
-		if i%2 == 1 {
-			j = p[i]
-		}
-		tmp := inputs[j]
-		inputs[j] = inputs[i]
-		inputs[i] = tmp
-		output := make([][2]string, len(inputs))
-		copy(output, inputs)
-		c <- output
-		for i = 1; p[i] == 0; i++ {
-			p[i] = i
-		}
-	}
-}
+// 	inputs := make([]int, length)
+// 	copy(inputs, p[1:])
+// 	output := make([]int, length)
+// 	copy(output, inputs)
+// 	c <- output
+
+// 	for i := 1; i < length; {
+// 		p[i]--
+// 		j := 0
+// 		if i%2 == 1 {
+// 			j = p[i]
+// 		}
+// 		tmp := inputs[j]
+// 		inputs[j] = inputs[i]
+// 		inputs[i] = tmp
+// 		output := make([]int, length)
+// 		copy(output, inputs)
+// 		c <- output
+// 		for i = 1; p[i] == 0; i++ {
+// 			p[i] = i
+// 		}
+// 	}
+// }
