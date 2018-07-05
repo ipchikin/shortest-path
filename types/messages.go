@@ -9,9 +9,9 @@ type Route struct {
 }
 
 type Leg struct {
-	Distance Distance `json:"distance"`
-	Duration Duration `json:"duration"`
-	Steps    []Step   `json:"steps"`
+	Distance    Distance `json:"distance"`
+	Duration    Duration `json:"duration"`
+	EndLocation Location `json:"end_location"`
 }
 
 type Distance struct {
@@ -20,10 +20,6 @@ type Distance struct {
 
 type Duration struct {
 	Value int64 `json:"value"`
-}
-
-type Step struct {
-	EndLocation Location `json:"end_location"`
 }
 
 type Location struct {

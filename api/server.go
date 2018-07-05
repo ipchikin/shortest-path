@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -66,9 +67,9 @@ func (s *Server) GetRouteHandler(w http.ResponseWriter, r *http.Request, ps http
 			} else {
 				apiKey := os.Getenv("API_KEY")
 				// generate Google Map api url
-				url := GMapApiUrl(locations, apiKey)
+				urls := GMapApiUrls(locations, apiKey)
 
-				resp, err := CallGMapApi(s.Client, url, locations[0])
+				resp, err := CallGMapApi(s.Client, urls, locations[0])
 				if err != nil {
 					data = types.FailureResponse{"failure", err}
 				} else {
@@ -136,50 +137,101 @@ func (s *Server) SetData(key []byte, val types.SuccessResponse, ttl time.Duratio
 	return nil
 }
 
-func GMapApiUrl(locations [][2]string, apiKey string) string {
-	var url string
+func GMapApiUrls(locations [][2]string, apiKey string) []string {
+	var urls []string
 	if len(locations) == 2 {
-		url = fmt.Sprintf("https://maps.googleapis.com/maps/api/directions/json?origin=%s,%s&destination=%s,%s&key=%s", locations[0][0], locations[0][1], locations[1][0], locations[1][1], apiKey)
+		urls = []string{fmt.Sprintf("https://maps.googleapis.com/maps/api/directions/json?origin=%s,%s&destination=%s,%s&key=%s", locations[0][0], locations[0][1], locations[1][0], locations[1][1], apiKey)}
 	} else {
-		// Combine the waypoints to a string for Google Map Directions API, lat1,lng1|lat2,lng2|...
-		var wps []string
-		for _, wp := range locations[1 : len(locations)-1] {
-			wps = append(wps, strings.Join(wp[:], ","))
+		permEnd := len(locations) - 2
+		for perm := range GeneratePermutations(locations[1:]) {
+			// Combine the waypoints to a string for Google Map Directions API, lat1,lng1|lat2,lng2|...
+			var wps []string
+			for _, wp := range perm[:permEnd] {
+				wps = append(wps, strings.Join(wp[:], ","))
+			}
+			waypoints := strings.Join(wps, "|")
+			urls = append(urls, fmt.Sprintf("https://maps.googleapis.com/maps/api/directions/json?origin=%s,%s&destination=%s,%s&waypoints=%s&key=%s", locations[0][0], locations[0][1], perm[permEnd][0], perm[permEnd][1], waypoints, apiKey))
 		}
-		waypoints := strings.Join(wps, "|")
-		url = fmt.Sprintf("https://maps.googleapis.com/maps/api/directions/json?origin=%s,%s&destination=%s,%s&waypoints=%s&key=%s", locations[0][0], locations[0][1], locations[len(locations)-1][0], locations[len(locations)-1][1], waypoints, apiKey)
 	}
 
-	return url
+	return urls
 }
 
-func CallGMapApi(client *http.Client, url string, start [2]string) (types.SuccessResponse, error) {
+func CallGMapApi(client *http.Client, urls []string, start [2]string) (types.SuccessResponse, error) {
 	var success types.SuccessResponse
 	var m types.Message
+	var shortestDistance = int64(math.MaxInt64)
+	var shortestTime int64
+	var shortestPath [][2]string
 
-	resp, err := client.Get(url)
-	if err != nil {
-		return success, err
+	for _, url := range urls {
+		resp, err := client.Get(url)
+		if err != nil {
+			return success, err
+		}
+
+		defer resp.Body.Close()
+		json.NewDecoder(resp.Body).Decode(&m)
+
+		if len(m.Routes) > 0 {
+			path := [][2]string{start}
+			distance := int64(0)
+			time := int64(0)
+			for _, leg := range m.Routes[0].Legs {
+				distance += leg.Distance.Value
+				time += leg.Duration.Value
+				path = append(path, [2]string{strconv.FormatFloat(leg.EndLocation.Lat, 'f', -1, 64), strconv.FormatFloat(leg.EndLocation.Lng, 'f', -1, 64)})
+			}
+
+			if distance < shortestDistance {
+				shortestDistance = distance
+				shortestTime = time
+				shortestPath = path
+			}
+		}
 	}
 
-	defer resp.Body.Close()
-	json.NewDecoder(resp.Body).Decode(&m)
-
-	if len(m.Routes) < 1 {
+	if len(shortestPath) == 0 {
 		return success, errors.New("No Route Found")
 	}
 
-	path := [][2]string{start}
-	distance := int64(0)
-	t := int64(0)
-	for _, leg := range m.Routes[0].Legs {
-		distance += leg.Distance.Value
-		t += leg.Duration.Value
-		for _, step := range leg.Steps {
-			path = append(path, [2]string{strconv.FormatFloat(step.EndLocation.Lat, 'f', -1, 64), strconv.FormatFloat(step.EndLocation.Lng, 'f', -1, 64)})
+	success = types.SuccessResponse{"success", shortestPath, shortestDistance, shortestTime}
+	return success, nil
+}
+
+func GeneratePermutations(data [][2]string) <-chan [][2]string {
+	c := make(chan [][2]string)
+	go func(c chan [][2]string) {
+		defer close(c)
+		permutate(c, data)
+	}(c)
+	return c
+}
+
+func permutate(c chan [][2]string, inputs [][2]string) {
+	output := make([][2]string, len(inputs))
+	copy(output, inputs)
+	c <- output
+
+	size := len(inputs)
+	p := make([]int, size+1)
+	for i := 0; i < size+1; i++ {
+		p[i] = i
+	}
+	for i := 1; i < size; {
+		p[i]--
+		j := 0
+		if i%2 == 1 {
+			j = p[i]
+		}
+		tmp := inputs[j]
+		inputs[j] = inputs[i]
+		inputs[i] = tmp
+		output := make([][2]string, len(inputs))
+		copy(output, inputs)
+		c <- output
+		for i = 1; p[i] == 0; i++ {
+			p[i] = i
 		}
 	}
-
-	success = types.SuccessResponse{"success", path, distance, t}
-	return success, nil
 }
