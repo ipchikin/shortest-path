@@ -1,7 +1,7 @@
 package types
 
 type ErrorResponse struct {
-	Error error `json:"error"`
+	Error string `json:"error"`
 }
 
 type Response struct {
@@ -17,7 +17,7 @@ type SuccessResponse struct {
 
 type FailureResponse struct {
 	Status string `json:"status"`
-	Error  error  `json:"error"`
+	Error  string `json:"error"`
 }
 
 type TokenResponse struct {

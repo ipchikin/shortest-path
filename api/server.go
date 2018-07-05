@@ -28,14 +28,14 @@ func GenTokenHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Param
 	var locations [][2]string
 	err := json.NewDecoder(r.Body).Decode(&locations)
 	if err != nil {
-		data = types.ErrorResponse{errors.New("Invalid Inputs")}
+		data = types.ErrorResponse{"Invalid Inputs"}
 	} else if len(locations) < 2 {
-		data = types.ErrorResponse{errors.New("Invalid Inputs")}
+		data = types.ErrorResponse{"Invalid Inputs"}
 	} else {
 		encryptionKey := []byte(os.Getenv("ENCRYPTION_KEY"))
 		token, err := codec.GenerateToken(locations, encryptionKey)
 		if err != nil {
-			data = types.ErrorResponse{err}
+			data = types.ErrorResponse{err.Error()}
 		} else {
 			data = types.TokenResponse{token}
 		}
@@ -52,7 +52,7 @@ func (s *Server) GetRouteHandler(w http.ResponseWriter, r *http.Request, ps http
 	// generate key from token
 	key, err := codec.GenerateKey(token)
 	if err != nil {
-		data = types.FailureResponse{"failure", errors.New("Invalid Token")}
+		data = types.FailureResponse{"failure", "Invalid Token"}
 	} else {
 		// retrieve data from the store
 		data, err = s.GetData(key)
@@ -63,7 +63,7 @@ func (s *Server) GetRouteHandler(w http.ResponseWriter, r *http.Request, ps http
 			// decrypt the key to generate inputs
 			locations, err := codec.GenerateInputs(key, encryptionKey)
 			if err != nil {
-				data = types.FailureResponse{"failure", errors.New("Invalid Token")}
+				data = types.FailureResponse{"failure", "Invalid Token"}
 			} else {
 				apiKey := os.Getenv("API_KEY")
 				// generate Google Map api url
@@ -71,7 +71,7 @@ func (s *Server) GetRouteHandler(w http.ResponseWriter, r *http.Request, ps http
 
 				resp, err := CallGMapApi(s.Client, urls, locations[0])
 				if err != nil {
-					data = types.FailureResponse{"failure", err}
+					data = types.FailureResponse{"failure", err.Error()}
 				} else {
 					data = resp
 					// cache the data for 10 mins
@@ -169,8 +169,8 @@ func CallGMapApi(client *http.Client, urls []string, start [2]string) (types.Suc
 		if err != nil {
 			return success, err
 		}
-
 		defer resp.Body.Close()
+
 		json.NewDecoder(resp.Body).Decode(&m)
 
 		if len(m.Routes) > 0 {
