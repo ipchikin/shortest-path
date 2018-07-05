@@ -160,82 +160,55 @@ func GMapApiUrls(locations [][2]string, apiKey string) []string {
 }
 
 func CallGMapApi(client *http.Client, urls []string, start [2]string) (types.SuccessResponse, error) {
-	var success types.SuccessResponse
-	var m types.Message
-	var shortestDistance = int64(math.MaxInt64)
-	var shortestTime int64
-	var shortestPath [][2]string
+	success := types.SuccessResponse{TotalDistance: int64(math.MaxInt64)}
 
+	ch := make(chan types.SuccessResponse)
 	for _, url := range urls {
-		resp, err := client.Get(url)
-		if err != nil {
-			return success, err
-		}
-		defer resp.Body.Close()
+		go MakeRequest(client, url, start, ch)
+	}
 
-		json.NewDecoder(resp.Body).Decode(&m)
-
-		if len(m.Routes) > 0 {
-			path := [][2]string{start}
-			distance := int64(0)
-			time := int64(0)
-			for _, leg := range m.Routes[0].Legs {
-				distance += leg.Distance.Value
-				time += leg.Duration.Value
-				path = append(path, [2]string{strconv.FormatFloat(leg.EndLocation.Lat, 'f', -1, 64), strconv.FormatFloat(leg.EndLocation.Lng, 'f', -1, 64)})
-			}
-
-			if distance < shortestDistance {
-				shortestDistance = distance
-				shortestTime = time
-				shortestPath = path
-			}
+	for range urls {
+		resp := <-ch
+		if resp.TotalDistance < success.TotalDistance {
+			success = resp
 		}
 	}
 
-	if len(shortestPath) == 0 {
+	if len(success.Path) == 0 {
 		return success, errors.New("No Route Found")
 	}
 
-	success = types.SuccessResponse{"success", shortestPath, shortestDistance, shortestTime}
 	return success, nil
 }
 
-// func GeneratePermutations(length int) <-chan []int {
-// 	c := make(chan []int)
-// 	go func(c chan []int) {
-// 		defer close(c)
-// 		permutate(c, length)
-// 	}(c)
-// 	return c
-// }
+func MakeRequest(client *http.Client, url string, start [2]string, ch chan<- types.SuccessResponse) {
+	success := types.SuccessResponse{TotalDistance: int64(math.MaxInt64)}
+	var m types.Message
 
-// func permutate(c chan []int, length int) {
-// 	p := make([]int, length+1)
-// 	for i := 0; i < length+1; i++ {
-// 		p[i] = i
-// 	}
+	resp, err := client.Get(url)
+	if err != nil {
+		ch <- success
+		return
+	}
+	defer resp.Body.Close()
 
-// 	inputs := make([]int, length)
-// 	copy(inputs, p[1:])
-// 	output := make([]int, length)
-// 	copy(output, inputs)
-// 	c <- output
+	json.NewDecoder(resp.Body).Decode(&m)
 
-// 	for i := 1; i < length; {
-// 		p[i]--
-// 		j := 0
-// 		if i%2 == 1 {
-// 			j = p[i]
-// 		}
-// 		tmp := inputs[j]
-// 		inputs[j] = inputs[i]
-// 		inputs[i] = tmp
-// 		output := make([]int, length)
-// 		copy(output, inputs)
-// 		c <- output
-// 		for i = 1; p[i] == 0; i++ {
-// 			p[i] = i
-// 		}
-// 	}
-// }
+	if len(m.Routes) > 0 {
+		path := [][2]string{start}
+		distance := int64(0)
+		time := int64(0)
+		for _, leg := range m.Routes[0].Legs {
+			distance += leg.Distance.Value
+			time += leg.Duration.Value
+			path = append(path, [2]string{strconv.FormatFloat(leg.EndLocation.Lat, 'f', -1, 64), strconv.FormatFloat(leg.EndLocation.Lng, 'f', -1, 64)})
+		}
+
+		success.Status = "success"
+		success.Path = path
+		success.TotalDistance = distance
+		success.TotalTime = time
+	}
+
+	ch <- success
+}
